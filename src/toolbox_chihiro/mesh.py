@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 
 def read_mesh(file_path):
     """
@@ -61,3 +62,24 @@ def read_mesh(file_path):
             land_boundary_nodes.append(boundary_nodes)
 
     return (nodes, elements, open_boundary_nodes, land_boundary_nodes)
+
+def mk_coastal_line(nodes, open_boundary_nodes, land_boundary_nodes):
+
+    nodes = {int(node[0]): node[1:3] for node in nodes}
+
+    boundaries = open_boundary_nodes + land_boundary_nodes
+
+    fig, ax = plt.subplots(figsize=(12, 10))
+
+    for boundary_nodes in boundaries:
+        lon = [nodes[n][0] for n in boundary_nodes]
+        lat = [nodes[n][1] for n in boundary_nodes]
+
+        ax.plot(lon, lat, "-k")
+
+    ax.set_xlabel("Longitude")
+    ax.set_ylabel("Latitude")
+    ax.set_aspect("equal")
+
+    return fig, ax
+
