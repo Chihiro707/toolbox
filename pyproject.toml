@@ -6,11 +6,13 @@ build-backend = "setuptools.build_meta"
 name = "toolbox-chihiro"
 version = "0.1.0"
 description = "Reusable Python utilities for research"
-requires-python = ">=3.10"
+requires-python = ">=3.13,<3.14"
 dependencies = [
     "numpy",
-    "pandas",
-    "matplotlib"
+    "pandas == 2.2.3",
+    "matplotlib",
+    "xarray",
+    "netCDF4"
 ]
 
 [tool.setuptools.packages.find]
