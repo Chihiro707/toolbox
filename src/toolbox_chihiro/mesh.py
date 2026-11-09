@@ -181,8 +181,13 @@ def animate_particles(
 
     # Get unique origin markers for color mapping
     marker_values = np.unique(origin_marker)
-    if not np.array_equal(marker_values, np.arange(len(marker_values))):
-        raise ValueError("Origin markers should be consecutive integers starting from 0.")
+    expected_values = np.arange(len(marker_values))
+
+    if not np.array_equal(marker_values, expected_values):
+        raise ValueError(
+            "Origin markers should be consecutive integers starting from 0."
+            f"Found: {marker_values}, expected: {expected_values}"
+        )
 
     # Set labels
     if label is None:
