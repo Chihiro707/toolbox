@@ -103,6 +103,7 @@ def read_particle(nc_path):
         - lon: numpy array of longitudes
         - lat: numpy array of latitudes
         - depth: numpy array of depths
+        - origin_marker: numpy array of origin markers
         - time_values: pandas datetime index of time values
     """
 
@@ -111,11 +112,12 @@ def read_particle(nc_path):
     lon = ds['lon'].to_numpy()
     lat = ds['lat'].to_numpy()
     depth = ds['z'].to_numpy()
+    origin_marker = ds['origin_marker'].to_numpy()
     time_values = pd.to_datetime(ds['time'].to_numpy())
 
     ds.close()
 
-    return lon, lat, depth, time_values
+    return lon, lat, depth, origin_marker, time_values
 
 def draw_coastline(nodes, open_boundary_nodes, land_boundary_nodes):
     """
@@ -154,146 +156,57 @@ def draw_coastline(nodes, open_boundary_nodes, land_boundary_nodes):
     return fig, ax
 
 def animate_particles(
-    nc_path,
     nodes,
     open_boundary_nodes,
     land_boundary_nodes,
-    interval=100,
-    save_path=None,
-    stride=1,
+    lon,
+    lat,
+    origin_marker,
+    time_values
 ):
     """
-    OpenDriftのNetCDFから粒子の移動アニメーションを作成する。
-
-    Parameters
-    ----------
-    nc_path : str
-        OpenDriftの出力NetCDFファイル
-    nodes : list
-        [node_id, lon, lat, depth] 形式などのNodeデータ
-    open_boundary_nodes : list
-        開境界ごとのNode IDリスト
-    land_boundary_nodes : list
-        陸境界ごとのNode IDリスト
-    interval : int
-        アニメーションのフレーム間隔（ms）
-    save_path : str or None
-        保存先。例: "particles.mp4", "particles.gif"
-    stride : int
-        時間方向の間引き幅。1なら全時刻を使用
+    Creates an animation of particle tracking results.
     """
 
-    # NetCDF読み込み
-    ds = xr.open_dataset(nc_path, decode_coords=False)
+    fig, ax = draw_coastline(
+        nodes,
+        open_boundary_nodes,
+        land_boundary_nodes
+    )
 
-    try:
-        # 座標を配列に変換
-        lon = ds["lon"].transpose("time", "trajectory").to_numpy()
-        lat = ds["lat"].transpose("time", "trajectory").to_numpy()
+    title = ax.set_title("Time: ")
 
-        # 想定する配列形状：(time, trajectory)
-        # 逆の場合は転置
-        if lon.ndim != 2 or lat.ndim != 2:
-            raise ValueError(
-                f"lon/latは2次元を想定しています: "
-                f"lon={lon.shape}, lat={lat.shape}"
-            )
+    scatter = ax.scatter(
+        [], [],
+        c=[],
+        cmap="viridis",
+        s=10,
+        alpha=0.7
+    )
 
-        if lon.shape != lat.shape:
-            raise ValueError("lonとlatの配列形状が一致しません。")
+    # 軸の範囲を固定
+    ax.set_xlim(ax.get_xlim())
+    ax.set_ylim(ax.get_ylim())
 
-        if ds["time"].dims == ("time",):
-            time_values = pd.to_datetime(ds["time"].to_numpy())
-        else:
-            raise ValueError("time変数の次元が想定と異なります。")
+    def update(frame):
+        current_time = time_values[frame]
 
-        # 時間が第0軸でない場合は転置
-        if ds["lon"].dims != ("time", "trajectory"):
-            if set(ds["lon"].dims) == {"time", "trajectory"}:
-                lon = ds["lon"].transpose("time", "trajectory").to_numpy()
-                lat = ds["lat"].transpose("time", "trajectory").to_numpy()
-            else:
-                raise ValueError(
-                    f"想定外のlonの次元: {ds['lon'].dims}"
-                )
+        # タイトルの更新
+        title.set_text(f"Time: {current_time}")
 
-        # statusがあれば、無効な粒子位置を除外
-        if "status" in ds:
-            status = ds["status"].transpose(
-                "time", "trajectory"
-            ).values
-            valid_status = status >= 0
-        else:
-            valid_status = np.ones(lon.shape, dtype=bool)
+        # 粒子の座標を更新
+        positions = np.column_stack[lon[:, frame], lat[:, frame]]
+        scatter.set_offsets(positions)
 
-        # 描画に使う時刻を間引く
-        frame_indices = np.arange(0, len(time_values), stride)
+        # 粒子の色を更新
+        scatter.set_array(origin_marker[:, frame])
 
-        # 海岸線を描画
-        fig, ax = draw_coastline(
-            nodes,
-            open_boundary_nodes,
-            land_boundary_nodes,
-        )
+    ani = FuncAnimation(
+        fig,
+        update,
+        frames=len(time_values),
+        interval=200,
+        blit=False
+    )
 
-        # 全時刻の粒子位置を1つのScatterで管理
-        scat = ax.scatter(
-            [], [],
-            s=12,
-            color="red",
-            zorder=5,
-            label="Particles",
-        )
-
-        title = ax.set_title("")
-        ax.legend()
-
-        # 描画範囲を固定
-        ax.set_xlim(ax.get_xlim())
-        ax.set_ylim(ax.get_ylim())
-
-        def update(frame):
-            t = frame_indices[frame]
-
-            # 有効な粒子かつ座標が有限のものだけ表示
-            valid = (
-                valid_status[t]
-                & np.isfinite(lon[t])
-                & np.isfinite(lat[t])
-            )
-
-            points = np.column_stack(
-                (lon[t, valid], lat[t, valid])
-            )
-
-            scat.set_offsets(points)
-            title.set_text(
-                f"Time: {time_values[t]:%Y-%m-%d %H:%M}"
-            )
-
-            return scat, title
-
-        ani = FuncAnimation(
-            fig,
-            update,
-            frames=len(frame_indices),
-            interval=interval,
-            blit=False,
-        )
-
-        if save_path is not None:
-            if save_path.endswith(".gif"):
-                ani.save(save_path, writer="pillow", fps=10)
-            elif save_path.endswith(".mp4"):
-                ani.save(save_path, writer="ffmpeg", fps=10)
-            else:
-                raise ValueError(
-                    "保存形式は .gif または .mp4 にしてください。"
-                )
-
-        plt.show()
-
-        return ani
-
-    finally:
-        ds.close()
+    return ani
