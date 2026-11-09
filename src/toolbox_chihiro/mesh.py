@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+from matplotlib.lines import Line2D
 import xarray as xr
 import pandas as pd
 
@@ -162,7 +163,9 @@ def animate_particles(
     lon,
     lat,
     origin_marker,
-    time_values
+    time_values,
+    interval=50,
+    label=None
 ):
     """
     Creates an animation of particle tracking results.
@@ -176,36 +179,73 @@ def animate_particles(
 
     title = ax.set_title("Time: ")
 
+    # Get unique origin markers for color mapping
+    marker_values = np.unique(origin_marker)
+    if not np.array_equal(marker_values, np.arange(len(marker_values))):
+        raise ValueError("Origin markers should be consecutive integers starting from 0.")
+
+    # Set labels
+    if label is None:
+        label = [str(value) for value in marker_values]
+
+    if len(label) != len(marker_values):
+        raise ValueError(
+            "origin_marker must contain consecutive integers starting from 0."
+            )
+
+    # Create a colormap
+    cmap = plt.get_cmap("viridis", len(label))
+
     scatter = ax.scatter(
         [], [],
         c=[],
-        cmap="viridis",
+        cmap=cmap,
+
+        # Fix the color limits to prevent the colormap from changing as
+        # the number of particles increases or decreases.
+        vmin=-0.5,
+        vmax=len(label) - 0.5,
+
         s=10,
         alpha=0.7
     )
 
-    # 軸の範囲を固定
+    handles = [
+        Line2D(
+            [0],[0],
+            marker='o',
+            color='w',
+            markerfacecolor=cmap(i),
+            markersize=7,
+            label=name
+        )
+        for i, name in enumerate(label)
+    ]
+
+    ax.legend(handles=handles, title="Seeding Location")
+
+    # Set the limits of the plot to the current limits
     ax.set_xlim(ax.get_xlim())
     ax.set_ylim(ax.get_ylim())
 
     def update(frame):
         current_time = time_values[frame]
 
-        # タイトルの更新
+        # Update the title with the current time
         title.set_text(f"Time: {current_time}")
 
-        # 粒子の座標を更新
-        positions = np.column_stack[lon[:, frame], lat[:, frame]]
+        # Update the positions of the particles
+        positions = np.column_stack((lon[:, frame], lat[:, frame]))
         scatter.set_offsets(positions)
 
-        # 粒子の色を更新
+        # Update the colors of the particles based on their origin markers
         scatter.set_array(origin_marker[:, frame])
 
     ani = FuncAnimation(
         fig,
         update,
         frames=len(time_values),
-        interval=200,
+        interval=interval,
         blit=False
     )
 
