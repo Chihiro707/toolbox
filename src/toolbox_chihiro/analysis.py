@@ -1,4 +1,5 @@
 import numpy as np
+from tqdm import tqdm
 
 def find_particle_element(nodes, elements, lon, lat):
     """
@@ -130,6 +131,76 @@ def judge_layer(
 
     return layer
 
+def is_particle_in_element(
+    nodes,
+    elements,
+    particle_element_id,
+    lon,
+    lat
+    ):
+    """
+    Check whether a particle is inside a specified triangular element.
+
+    Parameters
+    ----------
+    nodes : dict
+        Dictionary of node_id to node coordinates.
+    elements : array-like
+        Array of elements defined by node indices.
+    particle_element_id : int
+        ID of the target element (1-based).
+    lon : float
+        Longitude of the particle.
+    lat : float
+        Latitude of the particle.
+
+    Returns
+    -------
+    bool
+        True if the particle is inside the element, False otherwise.
+    """
+
+    # Get node coordinates of the target element
+    node_ids = elements[particle_element_id - 1][2:5]
+
+    node_coords = np.array([
+        [nodes[node_id]["lon"], nodes[node_id]["lat"]]
+        for node_id in node_ids
+    ])
+
+    # Calculate barycentric coordinates
+    p = np.array([lon, lat])
+
+    a, b, c = node_coords
+
+    v0 = b - a
+    v1 = c - a
+    v2 = p - a
+
+    d00 = np.dot(v0, v0)
+    d01 = np.dot(v0, v1)
+    d11 = np.dot(v1, v1)
+    d20 = np.dot(v2, v0)
+    d21 = np.dot(v2, v1)
+
+    denominator = d00 * d11 - d01**2
+
+    # Check whether the triangle is degenerate
+    if denominator <= np.finfo(float).eps * d00 * d11:
+        return False
+
+    beta = (d11 * d20 - d01 * d21) / denominator
+    gamma = (d00 * d21 - d01 * d20) / denominator
+    alpha = 1.0 - beta - gamma
+
+    tolerance = 1e-10
+
+    return (
+        alpha >= -tolerance
+        and beta >= -tolerance
+        and gamma >= -tolerance
+    )
+
 def analyze_depth_residence(
     nodes,
     elements,
@@ -137,8 +208,10 @@ def analyze_depth_residence(
     lat,
     depth,
     origin_marker,
-    time_values
-    ):
+    time_values,
+    surface_layer_thickness=1.0,
+    bottom_layer_thickness=1.0
+):
     """
     Analyze the number of frames particles spend in each depth layer.
 
@@ -155,6 +228,10 @@ def analyze_depth_residence(
         Marker identifying the particle seeding locations.
     time_values : array-like
         Time values corresponding to each frame.
+    surface_layer_thickness : float, optional
+        Thickness of the surface layer in meters. Default is 1.0.
+    bottom_layer_thickness : float, optional
+        Thickness of the bottom layer in meters. Default is 1.0.
 
     Returns
     -------
@@ -166,39 +243,78 @@ def analyze_depth_residence(
 
     layers = ["surface", "in-water", "seabed", "out-of-domain"]
 
-    # Initialize residence counts
+    # Group particles by origin marker
+    marker_groups = {
+        marker: np.where(origin_marker[:, 0] == marker)[0]
+        for marker in marker_values
+    }
+
+    # Initialize residence counts and particle information
     residence_count = {}
+    previous_element_id = {}
+    is_out_of_domain = {}
 
     for marker in marker_values:
 
-        marker_group = np.where(origin_marker[:, 0] == marker)[0]
+        residence_count[marker] = {}
+        previous_element_id[marker] = {}
+        is_out_of_domain[marker] = {}
 
-        residence_count[marker] = {
-            particle_id: {layer: 0 for layer in layers}
-            for particle_id in marker_group
-        }
+        for particle_id in marker_groups[marker]:
+
+            residence_count[marker][particle_id] = {
+                layer: 0 for layer in layers
+            }
+
+            previous_element_id[marker][particle_id] = None
+            is_out_of_domain[marker][particle_id] = False
 
     # Analyze each frame
-    for frame in range(len(time_values)):
+    for frame in tqdm(
+        range(len(time_values)),
+        desc="Analyzing particle residence",
+        unit="frame"
+    ):
 
         for marker in marker_values:
 
-            marker_group = np.where(origin_marker[:, 0] == marker)[0]
+            for particle_id in marker_groups[marker]:
 
-            for particle_id in marker_group:
+                # Skip particles already outside the domain
+                if is_out_of_domain[marker][particle_id]:
+                    residence_count[marker][particle_id]["out-of-domain"] += 1
+                    continue
+
+                # Check the previous element first
+                particle_element_id = previous_element_id[marker][particle_id]
+
+                if particle_element_id is not None:
+                    if not is_particle_in_element(
+                        nodes,
+                        elements,
+                        particle_element_id,
+                        lon[particle_id, frame],
+                        lat[particle_id, frame]
+                    ):
+                        particle_element_id = None
 
                 # Find the element containing the particle
-                particle_element_id = find_particle_element(
-                    nodes,
-                    elements,
-                    lon[particle_id, frame],
-                    lat[particle_id, frame]
-                )
+                if particle_element_id is None:
+                    particle_element_id = find_particle_element(
+                        nodes,
+                        elements,
+                        lon[particle_id, frame],
+                        lat[particle_id, frame]
+                    )
 
                 # Count particles outside the domain
                 if particle_element_id is None:
+                    is_out_of_domain[marker][particle_id] = True
                     residence_count[marker][particle_id]["out-of-domain"] += 1
                     continue
+
+                # Update the previous element ID
+                previous_element_id[marker][particle_id] = particle_element_id
 
                 # Classify particles into depth layers
                 layer = judge_layer(
@@ -206,12 +322,10 @@ def analyze_depth_residence(
                     elements,
                     particle_element_id,
                     depth[particle_id, frame],
-                    surface_layer_thickness=1.0,
-                    bottom_layer_thickness=1.0
+                    surface_layer_thickness=surface_layer_thickness,
+                    bottom_layer_thickness=bottom_layer_thickness
                 )
 
                 residence_count[marker][particle_id][layer] += 1
 
     return residence_count
-
-                

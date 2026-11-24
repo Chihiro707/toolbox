@@ -12,7 +12,8 @@ dependencies = [
     "pandas == 2.2.3",
     "matplotlib",
     "xarray",
-    "netCDF4 == 1.7.2"
+    "netCDF4 == 1.7.2",
+    "tqdm"
 ]
 
 [tool.setuptools.packages.find]
