@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from matplotlib.lines import Line2D
+from matplotlib.patches import Polygon
 
 def draw_coastline(nodes, open_boundary_nodes, land_boundary_nodes):
     """
@@ -36,6 +37,53 @@ def draw_coastline(nodes, open_boundary_nodes, land_boundary_nodes):
     ax.set_xlabel("Longitude")
     ax.set_ylabel("Latitude")
     ax.set_aspect("equal")
+
+    return fig, ax
+
+def show_element(
+        nodes,
+        elements,
+        open_boundary_nodes,
+        land_boundary_nodes,
+        particle_element_id,
+        title=None
+    ):
+
+    # Draw coastline
+    fig, ax = draw_coastline(
+        nodes,
+        open_boundary_nodes,
+        land_boundary_nodes
+    )
+
+    if title is not None:
+        ax.set_title(title)
+
+    # Get node IDs of the target element
+    element_node_ids = elements[particle_element_id - 1]
+
+    # Get coordinates of the element nodes
+    coords = np.array([
+        [nodes[node_id]["lon"], nodes[node_id]["lat"]]
+        for node_id in element_node_ids[2:5]
+    ])
+
+    # Draw the target element
+    polygon = Polygon(
+        coords,
+        closed=True,
+        facecolor="red",
+        edgecolor="black",
+        alpha=0.5,
+        label=f"Element {particle_element_id}"
+    )
+
+    ax.add_patch(polygon)
+
+    # Add legend
+    ax.legend()
+
+    plt.show()
 
     return fig, ax
 
