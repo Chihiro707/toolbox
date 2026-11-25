@@ -201,6 +201,68 @@ def is_particle_in_element(
         and gamma >= -tolerance
     )
 
+def build_element_neighbors(elements):
+    """
+    Build adjacency relationships between triangular elements.
+    Elements sharing an edge are considered neighbors.
+    """
+
+    edge_to_elements = {}
+
+    for elem in elements:
+        element_id = int(elem[0])
+        node_ids = elem[2:5]
+
+        edges = [
+            tuple(sorted((node_ids[0], node_ids[1]))),
+            tuple(sorted((node_ids[1], node_ids[2]))),
+            tuple(sorted((node_ids[2], node_ids[0])))
+        ]
+
+        for edge in edges:
+            edge_to_elements.setdefault(edge, []).append(element_id)
+
+    element_neighbors = {
+        int(elem[0]): set() for elem in elements
+    }
+
+    for adjacent_elements in edge_to_elements.values():
+        if len(adjacent_elements) == 2:
+            elem_a, elem_b = adjacent_elements
+
+            element_neighbors[elem_a].add(elem_b)
+            element_neighbors[elem_b].add(elem_a)
+
+    return element_neighbors
+
+def find_particle_element_nearby(
+    nodes,
+    elements,
+    element_neighbors,
+    previous_element_id,
+    lon,
+    lat
+):
+    """
+    Search the previous element and its neighboring elements.
+    """
+
+    # Check the previous element first
+    if is_particle_in_element(
+        nodes, elements, previous_element_id, lon, lat
+    ):
+        return previous_element_id
+
+    # Check neighboring elements
+    for neighbor_id in element_neighbors[previous_element_id]:
+
+        if is_particle_in_element(
+            nodes, elements, neighbor_id, lon, lat
+        ):
+            return neighbor_id
+
+    return None
+
 def analyze_depth_residence(
     nodes,
     elements,
@@ -254,6 +316,8 @@ def analyze_depth_residence(
     previous_element_id = {}
     is_out_of_domain = {}
 
+    element_neighbors = build_element_neighbors(elements)
+
     for marker in marker_values:
 
         residence_count[marker] = {}
@@ -289,24 +353,25 @@ def analyze_depth_residence(
                 particle_element_id = previous_element_id[marker][particle_id]
 
                 if particle_element_id is not None:
-                    if not is_particle_in_element(
+
+                    particle_element_id = find_particle_element_nearby(
                         nodes,
                         elements,
+                        element_neighbors,
                         particle_element_id,
                         lon[particle_id, frame],
                         lat[particle_id, frame]
-                    ):
-                        particle_element_id = None
+                    )
 
-                # Find the element containing the particle
+                # Search all elements only if necessary
                 if particle_element_id is None:
+
                     particle_element_id = find_particle_element(
                         nodes,
                         elements,
                         lon[particle_id, frame],
                         lat[particle_id, frame]
                     )
-
                 # Count particles outside the domain
                 if particle_element_id is None:
                     is_out_of_domain[marker][particle_id] = True
